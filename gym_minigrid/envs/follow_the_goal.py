@@ -20,6 +20,8 @@ class FollowTheLeaderEnv(MiniGridEnv):
     def __init__(
             self,
             size=20,
+            width=None,
+            height=None,
             agent_start_pos=(5,1),
             agent_start_dir=0,
             leader_start_pos=(5,3),
@@ -29,9 +31,12 @@ class FollowTheLeaderEnv(MiniGridEnv):
             warm_start = 5,
             movement_strategy = "forward", 
             random_step = 3,
-            max_step_size = None,
+            max_steps = None,
             reward_config = None,
-            n_obstacles = 0
+            n_obstacles = 0,
+            see_through_walls=True,
+            agent_view_size=7,
+            seed=42
             #available_actions = ["forward", "turn_left", "turn_right", "left", "right", "message_stop", "speed_up", "speed_down"] # пока не используется
             
     ):
@@ -69,7 +74,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
             иcпользуется только если movement_strategy = random, показывает, сколько шагов будет совершено в случайном направлении перед сменой.
             Если None, определяется случайно в диапазоне от 2 до 10.
             
-        max_step_size -- int or None:
+        max_steps -- int or None:
             число шагов среды до конца симуляции. Если None, определяется по числу действий ведущего.
             
         reward_config -- str or None:
@@ -90,7 +95,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.agent_start_pos = np.array(agent_start_pos,dtype=int)
         self.agent_start_dir = agent_start_dir
-        
         self.leader_start_pos = np.array(leader_start_pos,dtype=int)
         
         self.n_obstacles = n_obstacles
@@ -109,19 +113,50 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.leader_movement_strategy = self._determine_movement_strategy()
         
-        if max_step_size is None:
-            max_step_size = len(self.leader_movement_strategy)
+        if max_steps is None:
+            max_steps = len(self.leader_movement_strategy)
         
         self.simulation_nb = 0
+
+        # Can't set both grid_size and width/height
+        if size:
+            assert width == None and height == None
+            width = size
+            height = size
         
-        # TODO: перетащить оттуда нужное и убрать этот дурацкий вызов
-        super().__init__(
-            grid_size=size,
-            max_steps=max_step_size,#4 * size * size,
-            # Set this to True for maximum speed
-            see_through_walls=True,
+        
+        # Environment configuration
+        self.width = width
+        self.height = height
+        self.max_steps = max_steps
+        self.see_through_walls = see_through_walls
+
+        
+        
+        assert agent_view_size % 2 == 1
+        assert agent_view_size >= 3
+        self.agent_view_size = agent_view_size
+
+        # Observations are dictionaries containing an
+        # encoding of the grid and a textual 'mission' string
+        self.observation_space = spaces.Box(
+            low=0,
+            high=255,
+            shape=(self.agent_view_size, self.agent_view_size, 3),
+            dtype='uint8'
         )
-                
+        self.observation_space = spaces.Dict({
+            'image': self.observation_space
+        })
+
+        # Window to use for human rendering mode
+        self.window = None
+
+        # Initialize the RNG
+        self.seed(seed=seed)
+
+        
+        self.actions = self.Actions
         self.action_space = spaces.Discrete(self.actions.toggle + 1)
         
         if reward_config:
@@ -137,10 +172,30 @@ class FollowTheLeaderEnv(MiniGridEnv):
     
     
     def reset(self):
-        super().reset()
-        
         print("===Запуск симуляции номер {}===".format(self.simulation_nb))
         print()
+        # Из отцовского класса
+        self._gen_grid(self.width, self.height)
+        
+        self.agent_pos = self.agent_start_pos
+        self.agent_dir = self.agent_start_dir
+        
+        # These fields should be defined by _gen_grid
+        assert self.agent_pos is not None
+        assert self.agent_dir is not None
+
+        # Check that the agent doesn't overlap with an object
+        start_cell = self.grid.get(*self.agent_pos)
+        assert start_cell is None or start_cell.can_overlap()
+
+        # Item picked up, being carried, initially nothing
+        self.carrying = None
+
+        # Step count since episode start
+        self.step_count = 0
+
+ 
+        # Модификация
         self.leader_step = 0
         self.leader_trace = list()
         self.unique_trace_points = list() # используется в отрисовке маршрута и определении бокса для награды;
@@ -157,6 +212,13 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.accumulated_reward = 0
         self.simulation_nb += 1
+        
+        
+        # Return first observation
+        obs = self.gen_obs()
+        return obs
+
+        
         
         
     def _determine_movement_strategy(self):
@@ -235,6 +297,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         return obs, reward, done, {}# info
 
     
+    
     def movement_strategy_generate(self, strategy_name):
             
         print("выбранная стратегия движения: ", strategy_name)
@@ -287,13 +350,27 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.put_obj(self.leader,*(old_pos+leader_movement))
         
+        if len(self.leader_trace) < 2:
+            self.unique_trace_points.append(old_pos)
+        
         if not np.array_equal(old_pos, self.leader.cur_pos):
             self.unique_trace_points.append(self.leader.cur_pos)
             
+            # движение рамок
+            if len(self.unique_trace_points[self.cur_min_border_id:-1])-1>self.min_distance:
+                self.cur_min_border_id += 1
+
+            if self.cur_min_border_id - self.cur_max_border_id == self.max_distance - self.min_distance:
+                self.cur_max_border_id += 1
+            
+            print("borders:",self.cur_max_border_id,self.cur_min_border_id,self.max_distance - self.min_distance)
+        
+        
+        
+        
     
     
     def _trace_drawing(self):
-        size_of_reward_box = self.max_distance - self.min_distance
         
         if len(self.leader_trace) == 1:
             self.put_obj(Floor("yellow"), *self.leader_trace[-1])
@@ -301,20 +378,15 @@ class FollowTheLeaderEnv(MiniGridEnv):
         elif self.leader.cur_pos != self.leader_trace[-1]:
         # Лидер двинулся (прям как я)
             self.put_obj(Floor("yellow"), *self.leader_trace[-1])
+            self.put_obj(Floor("yellow"), *self.unique_trace_points[self.cur_max_border_id])
             
-#             if len(self.unique_trace_points) > self.min_distance:
-                
-            if len(self.unique_trace_points[self.cur_min_border_id:-1])-1>self.min_distance:
-                # -1 учесть len, -1 учесть текущую точку агента, которая тоже добавляется
-                self.cur_min_border_id += 1
-
-            if self.cur_min_border_id - self.cur_max_border_id == self.max_distance - self.min_distance:
-                self.put_obj(Floor("yellow"), *self.unique_trace_points[self.cur_max_border_id]) 
-                self.cur_max_border_id += 1
-
             for cur_point in self.unique_trace_points[self.cur_max_border_id:self.cur_min_border_id+1]:
                 self.put_obj(Floor("red"), *cur_point) 
-        
+            
+            if self.cur_min_border_id-self.cur_max_border_id >= self.max_distance - self.min_distance-1:
+                
+                self.put_obj(Floor("yellow"), *self.unique_trace_points[max([self.cur_max_border_id-1,0])])
+                
     
     def _bounding_box_agent_location(self):
         
