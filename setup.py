@@ -7,6 +7,7 @@ setup(
     url='https://github.com/maximecb/gym-minigrid',
     description='Minimalistic gridworld package for OpenAI Gym',
     packages=['gym_minigrid', 'gym_minigrid.envs'],
+    include_package_data=True,
     install_requires=[
         'gym>=0.9.6',
         'numpy>=1.15.0'

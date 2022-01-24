@@ -217,8 +217,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
         # Return first observation
         obs = self.gen_obs()
         return obs
-
-        
         
         
     def _determine_movement_strategy(self):
@@ -365,11 +363,15 @@ class FollowTheLeaderEnv(MiniGridEnv):
             
             print("borders:",self.cur_max_border_id,self.cur_min_border_id,self.max_distance - self.min_distance)
         
-        
+#         print("step", self.step_count, "action", str(action))
         
         
     
     
+    def movement_strategy_generate(self, strategy_name):#, stop_on_block = True):
+        with open("{}/../movement_strategies/{}.txt".format(os.path.dirname(os.path.abspath(__file__)), strategy_name)) as strat_file:
+            strategy_commands = strat_file.readlines()
+
     def _trace_drawing(self):
         
         if len(self.leader_trace) == 1:
