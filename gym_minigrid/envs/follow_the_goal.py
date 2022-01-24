@@ -91,7 +91,12 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         
         self.accumulated_reward = 0
-        
+
+        # reset() должна возвращать observation. 
+        # gen_obs уже вызывается в super().reset()
+        # Здесь придется делать повторный
+        obs = self.gen_obs()
+        return obs
         
         
         
@@ -285,7 +290,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         print("Аккумулированная награда: {}".format(self.accumulated_reward))
         print()
         
-        print("step", self.step_count, "action", )
+        print("step", self.step_count, "action", str(action))
         
         
         return obs, reward, done, {}# info
@@ -293,7 +298,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
     
     
     def movement_strategy_generate(self, strategy_name):#, stop_on_block = True):
-        with open("movement_strategies/{}.txt".format(strategy_name), "r") as strat_file:
+        with open("{}/../movement_strategies/{}.txt".format(os.path.dirname(os.path.abspath(__file__)), strategy_name)) as strat_file:
             strategy_commands = strat_file.readlines()
         
         list_commands_by_step = list()
