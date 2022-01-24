@@ -143,6 +143,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
         print()
         self.leader_step = 0
         self.leader_trace = list()
+        self.unique_trace_points = list() # используется в отрисовке маршрута и определении бокса для награды;
+        
+        self.cur_min_border_id = 0 
+        self.cur_max_border_id = 0
         
         if self.simulation_nb > 0:
             self.leader_movement_strategy = self._determine_movement_strategy()
@@ -153,8 +157,8 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.accumulated_reward = 0
         self.simulation_nb += 1
-
-    
+        
+        
     def _determine_movement_strategy(self):
         if isinstance(self.movement_strategy,list):
             cur_strategy_name = strategy_name(self._rand_int(0,len(self.movement_strategy)))
@@ -206,106 +210,30 @@ class FollowTheLeaderEnv(MiniGridEnv):
     
     
     def step(self, action):
-        reward = 0
-        
-        # Invalid action
-        if action >= self.action_space.n:
-            action = 0
-
-        # Check if there is an obstacle in front of the agent
-#         front_cell = self.grid.get(*self.front_pos)
-#         not_clear = front_cell and front_cell.type != 'floor'
-
-        #Здесь определяем движение Ведущего
-        old_pos = self.leader.cur_pos
-        self.leader_trace.append(old_pos)
-        
-        # обработка стоп-сигнала и движение ведущего
-        if self.stop_signal:
-            leader_movement = np.zeros(2,dtype=int)
-#             reward -= 1
-            print("Ведущий стоит по просьбе агента.")
-        else:
-            if self.leader_step >= len(self.leader_movement_strategy):
-                leader_movement = np.zeros(2,dtype=int)
-                print("Лидер прибыл в точку назначения.", self.leader_step, self.leader_movement_strategy)
-            else:
-                leader_movement = self.leader_movement_strategy[self.leader_step]
-            
-            if self.grid.get(*self.leader.cur_pos+leader_movement) not in {None, "floor"}:
-                leader_movement = np.zeros(2,dtype=int)
-            
-            self.leader_step+=1
-#             reward += 1
-        
-        self.put_obj(self.leader,*(old_pos+leader_movement))
-        
-        
-        
-        size_of_reward_box = self.max_distance - self.min_distance
-        unique_points_iter = 0
-        
-        
-        self.is_on_trace = False # находится ли агент на маршруте;
-        self.is_in_box = False # находится ли агент в "коробке";
-        trace_diff = 0
-        
-        
-        if self.leader.cur_pos != old_pos:
-            # просто np_unique нельзя, потому что ведущий в теории может вернуться в ту же точку.    
-            for cur_trace_point_id in range(len(self.leader_trace)):# zip(reversed(self.leader_trace[:-1]), reversed(self.leader_trace[1:])):
-
-                reverse_id = len(self.leader_trace)-cur_trace_point_id-1
-
-                cur_leader_trace_point = self.leader_trace[reverse_id]
-
-                if reverse_id != 0:
-                    prev_leader_trace_point = self.leader_trace[reverse_id-1]
-                else:
-                     prev_leader_trace_point = cur_leader_trace_point
-
-
-                self.put_obj(Floor("yellow"), *cur_leader_trace_point)
-
-                if np.array_equal(self.agent_pos, cur_leader_trace_point):
-                        self.is_on_trace = True
-
-
-                if np.any(cur_leader_trace_point!=prev_leader_trace_point):
-                    unique_points_iter += 1
-
-                if (unique_points_iter > self.min_distance) and (unique_points_iter <= self.max_distance):
-                    self.put_obj(Floor("red"), *cur_leader_trace_point)
-    #                 self.cur_bounding_box.append(cur_leader_trace_point)
-
-                    trace_diff = sum(abs(self.agent_pos - cur_leader_trace_point))
-                    if (trace_diff==0) or (trace_diff <= self.max_dev and not self.is_on_trace):
-                        self.is_in_box = True
-
-        
+        # Здесь определяем движение Ведущего
+        self._leader_movement()
+        # Отрисовка маршрута
+        self._trace_drawing()
         # Обработка действий агента
         done = self._agent_action_processing(action)
-        
+        # Определение местоположения агента относительно маршрута
+        self._bounding_box_agent_location()
+        #Расчёт награды
         reward = self._reward_computation()
-            
+        
+        print("step", self.step_count, "action", action)
+        
         self.accumulated_reward += reward
-        
         self.step_count += 1
-        
         if self.step_count >= self.max_steps:
             done = True
 
         obs = self.gen_obs()
-        print()
         print("Аккумулированная награда: {}".format(self.accumulated_reward))
         print()
         
-        print("step", self.step_count, "action", )
-        
-        
         return obs, reward, done, {}# info
 
-    
     
     def movement_strategy_generate(self, strategy_name):
             
@@ -337,8 +265,87 @@ class FollowTheLeaderEnv(MiniGridEnv):
         return list_commands_by_step
     
     
+    def _leader_movement(self):
+        old_pos = self.leader.cur_pos
+        self.leader_trace.append(old_pos)
+        
+        # обработка стоп-сигнала и движение ведущего
+        if self.stop_signal:
+            leader_movement = np.zeros(2,dtype=int)
+            print("Ведущий стоит по просьбе агента.")
+        else:
+            if self.leader_step >= len(self.leader_movement_strategy):
+                leader_movement = np.zeros(2,dtype=int)
+                print("Лидер прибыл в точку назначения.", self.leader_step, self.leader_movement_strategy)
+            else:
+                leader_movement = self.leader_movement_strategy[self.leader_step]
+            
+            if self.grid.get(*self.leader.cur_pos+leader_movement) not in {None, "floor"}:
+                leader_movement = np.zeros(2,dtype=int)
+            
+            self.leader_step+=1
+        
+        self.put_obj(self.leader,*(old_pos+leader_movement))
+        
+        if not np.array_equal(old_pos, self.leader.cur_pos):
+            self.unique_trace_points.append(self.leader.cur_pos)
+            
+    
+    
+    def _trace_drawing(self):
+        size_of_reward_box = self.max_distance - self.min_distance
+        
+        if len(self.leader_trace) == 1:
+            self.put_obj(Floor("yellow"), *self.leader_trace[-1])
+            
+        elif self.leader.cur_pos != self.leader_trace[-1]:
+        # Лидер двинулся (прям как я)
+            self.put_obj(Floor("yellow"), *self.leader_trace[-1])
+            
+#             if len(self.unique_trace_points) > self.min_distance:
+                
+            if len(self.unique_trace_points[self.cur_min_border_id:-1])-1>self.min_distance:
+                # -1 учесть len, -1 учесть текущую точку агента, которая тоже добавляется
+                self.cur_min_border_id += 1
+
+            if self.cur_min_border_id - self.cur_max_border_id == self.max_distance - self.min_distance:
+                self.put_obj(Floor("yellow"), *self.unique_trace_points[self.cur_max_border_id]) 
+                self.cur_max_border_id += 1
+
+            for cur_point in self.unique_trace_points[self.cur_max_border_id:self.cur_min_border_id+1]:
+                self.put_obj(Floor("red"), *cur_point) 
+        
+    
+    def _bounding_box_agent_location(self):
+        
+        self.is_on_trace = False # находится ли агент на маршруте;
+        self.is_in_box = False # находится ли агент в "коробке";
+        
+        for cur_point_id, cur_point in enumerate(self.unique_trace_points):
+            if np.array_equal(self.agent_pos,cur_point):
+                self.is_on_trace = True
+        
+        
+        if len(self.unique_trace_points) > self.min_distance:
+            
+             for cur_box_point in self.unique_trace_points[self.cur_max_border_id:self.cur_min_border_id+1]:
+                    
+                trace_diff = sum(abs(self.agent_pos - cur_box_point))
+                
+                if (trace_diff==0) or (trace_diff <= self.max_dev and not self.is_on_trace):
+                    self.is_in_box = True    
+            
+                    
+        
+    
+    
     def _agent_action_processing(self, action):
         done = False
+        
+        # Invalid action
+        if action >= self.action_space.n:
+            action = 0
+
         
         fwd_pos = self.front_pos
         fwd_cell = self.grid.get(*fwd_pos)
@@ -351,6 +358,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         if action == self.actions.left:
             self.agent_dir -= 1
             if self.agent_dir < 0:
+                
                 self.agent_dir += 4
         
         
@@ -364,14 +372,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
                 self.agent_pos = fwd_pos
                 
             # If the agent tried to walk over an obstacle or wall
-            
-            
             elif not_clear:
-                print("Авария!")
+                print("Авария!") 
                 self.crash = True
                 done = True
-                
-                
                 
 #             Пока лавы нет, это не нужно
 #             if fwd_cell != None and fwd_cell.type == 'lava':
@@ -383,14 +387,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
             print("стоп-сигнал -- {}".format(self.stop_signal))
             
         return done
-    
-    
-            # If the agent tried to walk over an obstacle or wall
-#         if action == self.actions.forward and not_clear:
-#             print("Авария!")
-#             self.crash = True
-#             done = True
-
     
     
     
@@ -420,7 +416,13 @@ class FollowTheLeaderEnv(MiniGridEnv):
                 res_reward += self.reward_config.not_on_track_penalty
             print("не на маршруте, не в коробке", self.reward_config.not_on_track_penalty)
         
-        if sum(abs(self.agent_pos - self.leader.cur_pos)) <=self.min_distance:
+        
+        
+        leader_agent_diff_vec = abs(self.agent_pos-self.leader.cur_pos)
+    
+        # Определяем близость так, а не по расстоянию Миньковского, чтобы ученсть близость по диагонали
+        if (leader_agent_diff_vec[0]<=self.min_distance) and (leader_agent_diff_vec[1] <= self.min_distance):
+#         if sum(abs(self.agent_pos - self.leader.cur_pos)) <= self.min_distance:
             res_reward += self.reward_config.too_close_penalty 
             print("Слишком близко!", self.reward_config.too_close_penalty)
         
