@@ -65,8 +65,9 @@ class FollowTheLeaderEnv(MiniGridEnv):
             название файла из папки movement_strategies без расширения или список названий (в таком случае при каждом запуске среды маршрут выбирается случайно) 
             или "random" -- движение в случайном направлении.
         
-        random_step -- int:
-            ипользуется только если movement_strategy = random, показывает, сколько шагов будет совершено в случайном направлении перед сменой.
+        random_step -- int или None:
+            иcпользуется только если movement_strategy = random, показывает, сколько шагов будет совершено в случайном направлении перед сменой.
+            Если None, определяется случайно в диапазоне от 2 до 10.
             
         max_step_size -- int or None:
             число шагов среды до конца симуляции. Если None, определяется по числу действий ведущего.
@@ -91,61 +92,84 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.agent_start_dir = agent_start_dir
         
         self.leader_start_pos = np.array(leader_start_pos,dtype=int)
-        self.leader_trace = list()
         
-        self.leader_movement_strategy = self.movement_strategy_generate(movement_strategy)
-        self.stop_signal = False
-        
-        if max_step_size is None:
-            max_step_size = len(self.leader_movement_strategy)
-        
-        
-        # Reduce obstacles if there are too many
         self.n_obstacles = n_obstacles
-        
-        self.leader_trace = []
         
         self.min_distance = min_distance
         self.max_distance = max_distance
         self.max_dev = max_dev
         self.movement_strategy = movement_strategy
         
+        if movement_strategy == "random":
+            self.random_step = random_step
+        
         self.warm_start = warm_start
         self.accumulated_reward = 0
         
         
+        self.leader_movement_strategy = self._determine_movement_strategy()
+        
+        if max_step_size is None:
+            max_step_size = len(self.leader_movement_strategy)
+        
+        self.simulation_nb = 0
+        
+        # TODO: перетащить оттуда нужное и убрать этот дурацкий вызов
         super().__init__(
             grid_size=size,
             max_steps=max_step_size,#4 * size * size,
             # Set this to True for maximum speed
             see_through_walls=True,
         )
-        
-        self.leader_step = 0
-        
-        # Allow only 3 actions permitted: left, right, forward
-        # + сигнал подождать
+                
         self.action_space = spaces.Discrete(self.actions.toggle + 1)
+        
+        if reward_config:
+            self.reward_config = Reward.from_json(reward_config)
+        else:
+            self.reward_config = Reward()
+            
         self.reward_range = (-100, 100)
         
         self.reset()
+        
         
     
     
     def reset(self):
         super().reset()
         
+        print("===Запуск симуляции номер {}===".format(self.simulation_nb))
+        print()
         self.leader_step = 0
-        
         self.leader_trace = list()
         
-        self.leader_movement_strategy = self.movement_strategy_generate(self.movement_strategy)
-        self.stop_signal = False
+        if self.simulation_nb > 0:
+            self.leader_movement_strategy = self._determine_movement_strategy()
         
+        
+        self.stop_signal = False
+        self.crash = False
         
         self.accumulated_reward = 0
+        self.simulation_nb += 1
+
+    
+    def _determine_movement_strategy(self):
+        if isinstance(self.movement_strategy,list):
+            cur_strategy_name = strategy_name(self._rand_int(0,len(self.movement_strategy)))
+        else:
+            cur_strategy_name = self.movement_strategy
+            
+            
+        if cur_strategy_name == "random":
+            leader_movement_strategy = self.random_strategy_generate(cur_strategy_name)
+        else:
+            leader_movement_strategy = self.movement_strategy_generate(cur_strategy_name)
         
-        
+        return leader_movement_strategy
+    
+    
     @staticmethod
     def _coords_diff(first_tuple, second_tuple):
         # Minkowski Distance
@@ -159,8 +183,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
     def add_skipped_points():
         raise NotImplementedError()
 
-    
-    
     def _gen_grid(self, width, height):
         # Create an empty grid
         self.grid = Grid(width, height)
@@ -182,17 +204,18 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.mission = "Следуй за лидером, минимальная дистанция = {0}, максимальная = {1},\n отклонение от маршрута = {2},шагов без штрафа = {3}.".format(self.min_distance, self.max_distance, self.max_dev, self.warm_start)
         
     
+    
     def step(self, action):
         reward = 0
+        
         # Invalid action
         if action >= self.action_space.n:
             action = 0
 
         # Check if there is an obstacle in front of the agent
-        front_cell = self.grid.get(*self.front_pos)
-        not_clear = front_cell and front_cell.type != 'floor'
+#         front_cell = self.grid.get(*self.front_pos)
+#         not_clear = front_cell and front_cell.type != 'floor'
 
-        
         #Здесь определяем движение Ведущего
         old_pos = self.leader.cur_pos
         self.leader_trace.append(old_pos)
@@ -200,7 +223,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         # обработка стоп-сигнала и движение ведущего
         if self.stop_signal:
             leader_movement = np.zeros(2,dtype=int)
-            reward -= 1
+#             reward -= 1
             print("Ведущий стоит по просьбе агента.")
         else:
             if self.leader_step >= len(self.leader_movement_strategy):
@@ -213,7 +236,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
                 leader_movement = np.zeros(2,dtype=int)
             
             self.leader_step+=1
-            reward += 1
+#             reward += 1
         
         self.put_obj(self.leader,*(old_pos+leader_movement))
         
@@ -223,8 +246,8 @@ class FollowTheLeaderEnv(MiniGridEnv):
         unique_points_iter = 0
         
         
-        is_on_trace = False # находится ли агент на маршруте;
-        is_in_box = False # находится ли агент в "коробке";
+        self.is_on_trace = False # находится ли агент на маршруте;
+        self.is_in_box = False # находится ли агент в "коробке";
         trace_diff = 0
         
         
@@ -245,7 +268,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
                 self.put_obj(Floor("yellow"), *cur_leader_trace_point)
 
                 if np.array_equal(self.agent_pos, cur_leader_trace_point):
-                        is_on_trace = True
+                        self.is_on_trace = True
 
 
                 if np.any(cur_leader_trace_point!=prev_leader_trace_point):
@@ -256,44 +279,15 @@ class FollowTheLeaderEnv(MiniGridEnv):
     #                 self.cur_bounding_box.append(cur_leader_trace_point)
 
                     trace_diff = sum(abs(self.agent_pos - cur_leader_trace_point))
-                    if (trace_diff==0) or (trace_diff <= self.max_dev and not is_on_trace):
-                        is_in_box = True
+                    if (trace_diff==0) or (trace_diff <= self.max_dev and not self.is_on_trace):
+                        self.is_in_box = True
 
         
         # Обработка действий агента
         done = self._agent_action_processing(action)
         
-        
-        
-        # Расчёт награды должен быть здесь
-        if is_in_box and is_on_trace:
-            reward += 1
-            print("В коробке на маршруте.")
-        elif is_in_box:
-            # в пределах погрешности
-            reward += 0.5
-            print("В коробке, не на маршруте")
-        elif is_on_trace:
-            reward += 0.1
-            print("на маршруте, не в коробке")
-        else:
-            if self.step_count > self.warm_start:
-                reward += -1
-            print("не на маршруте, не в коробке")
-        
-        if sum(abs(self.agent_pos - self.leader.cur_pos)) <=self.min_distance:
-            reward -= 5 
-            print("Слишком близко!")
-        
-
-        
-        # If the agent tried to walk over an obstacle or wall
-        if action == self.actions.forward and not_clear:
-            reward = -10
-            print("Авария!")
-            done = True
-        #    return obs, reward, done, info
-        
+        reward = self._reward_computation()
+            
         self.accumulated_reward += reward
         
         self.step_count += 1
@@ -313,7 +307,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
 
     
     
-    def movement_strategy_generate(self, strategy_name):#, stop_on_block = True):
+    def movement_strategy_generate(self, strategy_name):
+            
+        print("выбранная стратегия движения: ", strategy_name)
+        
         with open("movement_strategies/{}.txt".format(strategy_name), "r") as strat_file:
             strategy_commands = strat_file.readlines()
         
@@ -327,36 +324,28 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         return list_commands_by_step
         
-#         leader_movement = np.zeros(2,dtype=int)
+    
+    def random_strategy_generate(self):
         
-#         if step < 10:
-#             leader_movement[1]+=1
-#         else:
-#             leader_movement[0]+=1
+        list_commands_by_step = list()
         
-#         # отслеживание возможности продолжения движения
-#         # добавить огибание
-#         if self.grid.get(*self.leader.cur_pos+leader_movement) not in {None, "floor"}:
-#             if stop_on_block:
-#                 return np.zeros(2,dtype=int)
-#             else:
-#                 raise NotImplementedError()
-#                 # пробуем втупую обойти стену
-#                 # уверен, можно проще
-#                 if leader_movement[0] == 1:
-#                     if self.grid.get(*self.leader.cur_pos+[0,1]) not in {None, "floor"}:
-                        
-                
-            
-#         else:
-#             return leader_movement
+        for cur_command_nb in range(int(self.max_step_size/self.random_step)):
+            cur_command = np.array((self._randint(-1,1), self._randint(-1,1)))
+            for i in range(self.random_step):
+                list_commands_by_step.append(cur_command.copy())
         
+        return list_commands_by_step
+    
     
     def _agent_action_processing(self, action):
         done = False
         
         fwd_pos = self.front_pos
         fwd_cell = self.grid.get(*fwd_pos)
+        
+        front_cell = self.grid.get(*self.front_pos)
+        not_clear = front_cell and front_cell.type != 'floor'
+
         
         #Rotate_left
         if action == self.actions.left:
@@ -373,9 +362,20 @@ class FollowTheLeaderEnv(MiniGridEnv):
         elif action == self.actions.forward:
             if fwd_cell == None or fwd_cell.can_overlap():
                 self.agent_pos = fwd_pos
-
-            if fwd_cell != None and fwd_cell.type == 'lava':
+                
+            # If the agent tried to walk over an obstacle or wall
+            
+            
+            elif not_clear:
+                print("Авария!")
+                self.crash = True
                 done = True
+                
+                
+                
+#             Пока лавы нет, это не нужно
+#             if fwd_cell != None and fwd_cell.type == 'lava':
+#                 done = True
 
         # Stop_signal
         elif action == self.actions.toggle:
@@ -383,6 +383,54 @@ class FollowTheLeaderEnv(MiniGridEnv):
             print("стоп-сигнал -- {}".format(self.stop_signal))
             
         return done
+    
+    
+            # If the agent tried to walk over an obstacle or wall
+#         if action == self.actions.forward and not_clear:
+#             print("Авария!")
+#             self.crash = True
+#             done = True
+
+    
+    
+    
+    def _reward_computation(self):
+        # Скорее всего, это можно сделать красивее
+        res_reward = 0
+        
+        if self.stop_signal:
+            res_reward += self.reward_config.leader_stop_penalty
+            print("Лидер стоит по просьбе агента", self.reward_config.leader_stop_penalty)
+        else:
+            res_reward += self.reward_config.leader_movement_reward
+            print("Лидер идёт по маршруту", self.reward_config.leader_movement_reward)
+        
+        if self.is_in_box and self.is_on_trace:
+            res_reward += self.reward_config.reward_in_box
+            print("В коробке на маршруте.", self.reward_config.reward_in_box)
+        elif self.is_in_box:
+            # в пределах погрешности
+            res_reward += self.reward_config.reward_in_dev
+            print("В коробке, не на маршруте", self.reward_config.reward_in_dev)
+        elif self.is_on_trace:
+            res_reward += self.reward_config.reward_on_track
+            print("на маршруте, не в коробке", self.reward_config.reward_on_track)
+        else:
+            if self.step_count > self.warm_start:
+                res_reward += self.reward_config.not_on_track_penalty
+            print("не на маршруте, не в коробке", self.reward_config.not_on_track_penalty)
+        
+        if sum(abs(self.agent_pos - self.leader.cur_pos)) <=self.min_distance:
+            res_reward += self.reward_config.too_close_penalty 
+            print("Слишком близко!", self.reward_config.too_close_penalty)
+        
+        if self.crash:
+            res_reward += self.reward_config.crash_penalty
+            print("АВАРИЯ!", self.reward_config.crash_penalty)
+        
+        return res_reward
+        
+    
     
     
 class FollowTheLeaderEnv20x20_forward(FollowTheLeaderEnv):
