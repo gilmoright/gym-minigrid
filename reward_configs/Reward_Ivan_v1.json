@@ -1,0 +1,1 @@
+{"name": "Reward_Ivan_v1", "reward_in_box": 1.0, "reward_on_track": 0.1, "reward_in_dev": 0.5, "leader_movement_reward": 1.0, "crash_penalty": -10.0, "not_on_track_penalty": -1.0, "too_close_penalty": -5.0, "leader_stop_penalty": -1.0}
