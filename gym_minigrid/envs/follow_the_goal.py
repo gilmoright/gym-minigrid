@@ -1,5 +1,6 @@
 from gym_minigrid.minigrid import *
 from gym_minigrid.register import register
+from gym_minigrid.utils.reward_constructor import Reward
 from operator import add
 import numpy as np
 import os
@@ -22,17 +23,69 @@ class FollowTheLeaderEnv(MiniGridEnv):
             agent_start_pos=(5,1),
             agent_start_dir=0,
             leader_start_pos=(5,3),
-            leader_start_dir=0,
-            n_obstacles=1,
             min_distance = 1,
             max_distance = 4,
             max_dev = 1,
             warm_start = 5,
             movement_strategy = "forward", 
+            random_step = 3,
             max_step_size = None,
+            reward_config = None,
+            n_obstacles = 0
             #available_actions = ["forward", "turn_left", "turn_right", "left", "right", "message_stop", "speed_up", "speed_down"] # пока не используется
             
     ):
+        '''Класс для создания среды следования за лидером.
+        Входные параметры:
+        size -- int:
+            Размер стороны поля (по умолчанию: 20);
+            
+        agent_start_pos -- tuple(int,int):
+            Стартовые координаты агента;
+            
+        agent_start_dir -- int:
+            Стартовое направление агента;
+        
+        leader_start_pos -- tuple(int,int):
+            Стартовое направление ведущего;
+            
+        min_distance -- int: 
+            Минимальная дистанция, которую должен держать агент от ведущего;
+        
+        max_distance -- int: 
+            Максимальная дистанция, дальше которой агент не должен отставать;
+        
+        max_dev -- int: 
+            Максимальное отклонение от маршрута (в клетках);
+            
+        warm_start -- int: 
+            Число шагов среды, в течение которых агент не получает штраф за движение вне маршрута (чтобы он успел встать на маршрут);
+            
+        movement_strategy -- str, List(str) or "random":
+            название файла из папки movement_strategies без расширения или список названий (в таком случае при каждом запуске среды маршрут выбирается случайно) 
+            или "random" -- движение в случайном направлении.
+        
+        random_step -- int:
+            ипользуется только если movement_strategy = random, показывает, сколько шагов будет совершено в случайном направлении перед сменой.
+            
+        max_step_size -- int or None:
+            число шагов среды до конца симуляции. Если None, определяется по числу действий ведущего.
+            
+        reward_config -- str or None:
+            путь до json-файла, который описывает награду в соответствии с dataclass Reward из gym_minigrid.utils.reward_constructor. 
+            Если None, используется значение по умолчанию;
+            
+        see_through_walls -- bool:
+            Способен ли агент видеть сквозь стены (True для ускорения работы и обучения)
+            
+        seed -- int:
+            random seed;
+            
+        agent_view_size -- int:
+            Размер стороны поля зрения агента;
+        
+        n_obstacles -- число случайно генерируемых препятствий на поле.
+        '''
         
         self.agent_start_pos = np.array(agent_start_pos,dtype=int)
         self.agent_start_dir = agent_start_dir
@@ -93,8 +146,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.accumulated_reward = 0
         
         
-        
-        
     @staticmethod
     def _coords_diff(first_tuple, second_tuple):
         # Minkowski Distance
@@ -107,34 +158,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
     @staticmethod
     def add_skipped_points():
         raise NotImplementedError()
-        
-    def is_agent_in_box(self):
-        
-        closest_trace_distance = 1000
-        is_on_track = False
-        
-        for cur_point_nb, cur_trace_point in enumerate(self.leader_trace):
-            
-            cur_trace_distance = self._coords_diff(cur_trace_point,self.agent_pos)
-            
-            if cur_trace_distance < closest_trace_distance:
-                closest_trace_distance = cur_trace_distance
-                closest_trace_point_nb = cur_point_nb
-            
-            if cur_trace_distance < self.max_dev:
-                is_on_track=True
-        
-        
-        
-        is_distance_safe = False
-        
-        #distance = len(self.leader_trace[closest_trace_point_nb:])+closest_trace_distance
-        
-        distance = self._coords_diff(self.agent_pos, self.leader.cur_pos)
-        if self.min_distance < distance < self.max_distance:
-            is_distance_safe = True
-        
-        return is_on_track and is_distance_safe
+
     
     
     def _gen_grid(self, width, height):
@@ -144,9 +168,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
         # Generate the surrounding walls
         self.grid.wall_rect(0, 0, width, height)
 
-        # Place a goal square in the bottom-right corner
-        #self.grid.set(width - 2, height - 2, Goal())
-
         # Place the agent
         if self.agent_start_pos is not None:
             self.agent_pos = np.array(self.agent_start_pos)
@@ -154,14 +175,12 @@ class FollowTheLeaderEnv(MiniGridEnv):
         else:
             self.place_agent()
         
-        #Сюда ведущего добавлять
+        # Создание ведущего
         self.leader = Ball()
         self.put_obj(self.leader, *self.leader_start_pos)
 
         self.mission = "Следуй за лидером, минимальная дистанция = {0}, максимальная = {1},\n отклонение от маршрута = {2},шагов без штрафа = {3}.".format(self.min_distance, self.max_distance, self.max_dev, self.warm_start)
         
-#         self.stop_signal = False
-    
     
     def step(self, action):
         reward = 0
@@ -203,11 +222,11 @@ class FollowTheLeaderEnv(MiniGridEnv):
         size_of_reward_box = self.max_distance - self.min_distance
         unique_points_iter = 0
         
-        #self.cur_bounding_box = list()
         
         is_on_trace = False # находится ли агент на маршруте;
         is_in_box = False # находится ли агент в "коробке";
         trace_diff = 0
+        
         
         if self.leader.cur_pos != old_pos:
             # просто np_unique нельзя, потому что ведущий в теории может вернуться в ту же точку.    
@@ -241,10 +260,12 @@ class FollowTheLeaderEnv(MiniGridEnv):
                         is_in_box = True
 
         
-        # Обработка действий агента будет в этой функции
+        # Обработка действий агента
         done = self._agent_action_processing(action)
         
         
+        
+        # Расчёт награды должен быть здесь
         if is_in_box and is_on_trace:
             reward += 1
             print("В коробке на маршруте.")
