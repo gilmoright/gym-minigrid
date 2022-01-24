@@ -38,11 +38,13 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.agent_start_dir = agent_start_dir
         
         self.leader_start_pos = np.array(leader_start_pos,dtype=int)
-        self.leader_start_dir = leader_start_dir #пока не используется
         self.leader_trace = list()
-        self.leader_step = 0
+        
         self.leader_movement_strategy = self.movement_strategy_generate(movement_strategy)
         self.stop_signal = False
+        
+        if max_step_size is None:
+            max_step_size = len(self.leader_movement_strategy)
         
         
         # Reduce obstacles if there are too many
@@ -53,14 +55,11 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.min_distance = min_distance
         self.max_distance = max_distance
         self.max_dev = max_dev
-#         self.movement_strategy = movement_strategy
+        self.movement_strategy = movement_strategy
         
         self.warm_start = warm_start
         self.accumulated_reward = 0
         
-        
-        if max_step_size is None:
-            max_step_size = len(self.leader_movement_strategy)
         
         super().__init__(
             grid_size=size,
@@ -68,11 +67,34 @@ class FollowTheLeaderEnv(MiniGridEnv):
             # Set this to True for maximum speed
             see_through_walls=True,
         )
+        
+        self.leader_step = 0
+        
         # Allow only 3 actions permitted: left, right, forward
         # + сигнал подождать
         self.action_space = spaces.Discrete(self.actions.toggle + 1)
         self.reward_range = (-100, 100)
+        
+        self.reset()
+        
     
+    
+    def reset(self):
+        super().reset()
+        
+        self.leader_step = 0
+        
+        self.leader_trace = list()
+        
+        self.leader_movement_strategy = self.movement_strategy_generate(self.movement_strategy)
+        self.stop_signal = False
+        
+        
+        self.accumulated_reward = 0
+        
+        
+        
+        
     @staticmethod
     def _coords_diff(first_tuple, second_tuple):
         # Minkowski Distance
@@ -139,9 +161,8 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.mission = "Следуй за лидером, минимальная дистанция = {0}, максимальная = {1},\n отклонение от маршрута = {2},шагов без штрафа = {3}.".format(self.min_distance, self.max_distance, self.max_dev, self.warm_start)
         
 #         self.stop_signal = False
-        
-
-
+    
+    
     def step(self, action):
         reward = 0
         # Invalid action
@@ -165,6 +186,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         else:
             if self.leader_step >= len(self.leader_movement_strategy):
                 leader_movement = np.zeros(2,dtype=int)
+                print("Лидер прибыл в точку назначения.", self.leader_step, self.leader_movement_strategy)
             else:
                 leader_movement = self.leader_movement_strategy[self.leader_step]
             
@@ -176,18 +198,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.put_obj(self.leader,*(old_pos+leader_movement))
         
-        
-        
-        # отрисовка маршрута ведущего
-#         if len(self.leader_trace) < 2:
-#             self.put_obj(Floor("yellow"),*self.leader_trace[0])
-#         else:
-#             prev_point = self.leader_trace[-2]
-#             cur_point = self.leader_trace[-1]
-
-#             if not np.all(prev_point==cur_point):
-#                 # Если предыдущая и текущая координаты отличаются, значит ведущий двигается
-#                 self.put_obj(Floor("yellow"), *cur_point)    
         
         
         size_of_reward_box = self.max_distance - self.min_distance
@@ -230,7 +240,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
                     if (trace_diff==0) or (trace_diff <= self.max_dev and not is_on_trace):
                         is_in_box = True
 
-                    
+        
         # Обработка действий агента будет в этой функции
         done = self._agent_action_processing(action)
         
@@ -275,6 +285,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         print("Аккумулированная награда: {}".format(self.accumulated_reward))
         print()
         
+        print("step", self.step_count, "action", )
         
         
         return obs, reward, done, {}# info
@@ -282,7 +293,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
     
     
     def movement_strategy_generate(self, strategy_name):#, stop_on_block = True):
-        with open("movement_strategies/{}.txt".format(strategy_name)) as strat_file:
+        with open("movement_strategies/{}.txt".format(strategy_name), "r") as strat_file:
             strategy_commands = strat_file.readlines()
         
         list_commands_by_step = list()
