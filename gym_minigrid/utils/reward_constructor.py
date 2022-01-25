@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Reward:
-    name: str
+    name: str = "base_reward"
     reward_in_box: float = 1. # награда за то, что агент на маршруте и на нужной дистанции
     reward_on_track: float = 0.1  # награда за то, что агент на маршруте (но не в коробке)
     reward_in_dev: float = 0.5 # награда за то, что агент в пределах погрешности от маршрута
