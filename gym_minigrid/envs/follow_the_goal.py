@@ -362,12 +362,6 @@ class FollowTheLeaderEnv(MiniGridEnv):
 
             if self.cur_min_border_id - self.cur_max_border_id == self.max_distance - self.min_distance:
                 self.cur_max_border_id += 1
-            
-            print("borders:",self.cur_max_border_id,self.cur_min_border_id,self.max_distance - self.min_distance)
-        
-        
-        
-        
     
     
     def _trace_drawing(self):
@@ -517,7 +511,7 @@ class FollowTheLeaderEnv20x20_corner(FollowTheLeaderEnv):
         
 class FollowTheLeaderEnv20x20_curve(FollowTheLeaderEnv):
     def __init__(self):
-        super().__init__(movement_strategy="serpentine")#, max_step_size=40)
+        super().__init__(movement_strategy="serpentine")
         
 class FollowTheLeaderEnv50x50_curve(FollowTheLeaderEnv):
     def __init__(self):
