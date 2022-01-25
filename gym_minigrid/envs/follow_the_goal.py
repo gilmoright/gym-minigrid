@@ -300,8 +300,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
             
         print("выбранная стратегия движения: ", strategy_name)
         
-        with open("movement_strategies/{}.txt".format(strategy_name), "r") as strat_file:
+        with open("{}/../movement_strategies/{}.txt".format(os.path.dirname(os.path.abspath(__file__)), strategy_name)) as strat_file:
             strategy_commands = strat_file.readlines()
+#         with open("movement_strategies/{}.txt".format(strategy_name), "r") as strat_file:
+#             strategy_commands = strat_file.readlines()
         
         list_commands_by_step = list()
         for cur_command in strategy_commands:
@@ -366,9 +368,8 @@ class FollowTheLeaderEnv(MiniGridEnv):
 #         print("step", self.step_count, "action", str(action))
         
     
-    def movement_strategy_generate(self, strategy_name):#, stop_on_block = True):
-        with open("{}/../movement_strategies/{}.txt".format(os.path.dirname(os.path.abspath(__file__)), strategy_name)) as strat_file:
-            strategy_commands = strat_file.readlines()
+#     def movement_strategy_generate(self, strategy_name):#, stop_on_block = True):
+
 
     def _trace_drawing(self):
         
