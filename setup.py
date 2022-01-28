@@ -6,7 +6,7 @@ setup(
     keywords='memory, environment, agent, rl, openaigym, openai-gym, gym',
     url='https://github.com/maximecb/gym-minigrid',
     description='Minimalistic gridworld package for OpenAI Gym',
-    packages=['gym_minigrid', 'gym_minigrid.envs'],
+    packages=['gym_minigrid', 'gym_minigrid.envs', 'gym_minigrid.utils'],
     include_package_data=True,
     install_requires=[
         'gym>=0.9.6',
