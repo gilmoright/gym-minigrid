@@ -232,7 +232,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
             
             
         if cur_strategy_name == "random":
-            leader_movement_strategy = self.random_strategy_generate()
+            leader_movement_strategy = self.random_walking_strategy_generate()
         else:
             leader_movement_strategy = self.movement_strategy_generate(cur_strategy_name)
         
@@ -321,11 +321,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
     
     def random_walking_strategy_generate(self):
-        raise NotImplementedError()
         list_commands_by_step = list()
         
         for cur_command_nb in range(int(self.max_steps/self.random_step)):
-            cur_command = np.array((self._rand_int(-1,1), self._rand_int(-1,1)))
+            cur_command = np.array((self._rand_int(-1,2), self._rand_int(-1,2)))
             for i in range(self.random_step):
                 list_commands_by_step.append(cur_command.copy())
         
@@ -544,7 +543,7 @@ class FollowTheLeaderEnv50x50_curve(FollowTheLeaderEnv):
 
 class FollowTheLeaderEnv50x50_random(FollowTheLeaderEnv):
     def __init__(self):
-        super().__init__(movement_strategy="random", max_steps=50, random_step=2, size=50)
+        super().__init__(movement_strategy="random", max_steps=50, random_step=2, size=50, leader_start_pos=(25, 25), agent_start_pos=(25, 23))
         
 register(
     id='MiniGrid-FollowTheLeader-forward-20x20-v0',
@@ -569,6 +568,11 @@ register(
 register(
     id='MiniGrid-FollowTheLeader-cycle_all_strats-20x20-v0',
     entry_point='gym_minigrid.envs:FollowTheLeaderEnv20x20_cycle_all_strats'
+)
+
+register(
+    id='MiniGrid-FollowTheLeader-random-50x50-v0',
+    entry_point='gym_minigrid.envs:FollowTheLeaderEnv50x50_random'
 )
 
 
