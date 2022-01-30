@@ -28,7 +28,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
             min_distance = 1,
             max_distance = 4,
             max_dev = 1,
-            warm_start = 5,
+            warm_start = 3,
             movement_strategy = "forward", 
             random_step = 3,
             max_steps = None,
@@ -97,7 +97,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.agent_start_pos = np.array(agent_start_pos,dtype=int)
         self.agent_start_dir = agent_start_dir
         self.leader_start_pos = np.array(leader_start_pos,dtype=int)
-        self.verbose = 1
+        self.verbose = 0
         
         self.n_obstacles = n_obstacles
         
@@ -116,7 +116,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.max_steps = max_steps        
         self.leader_movement_strategy = self._determine_movement_strategy()
         if self.max_steps is None:
-            self.max_steps = len(self.leader_movement_strategy)
+            self.max_steps = len(self.leader_movement_strategy) + 10  # +10 на остановку лидера
         
         self.simulation_nb = 0
 
@@ -206,7 +206,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         if self.simulation_nb > 0:
             self.leader_movement_strategy = self._determine_movement_strategy()
         
-        self.max_steps = len(self.leader_movement_strategy)
+        self.max_steps = len(self.leader_movement_strategy) + 10 # +10 на 3 остановки и запуска лидера
         self.stop_signal = False
         self.crash = False
         
