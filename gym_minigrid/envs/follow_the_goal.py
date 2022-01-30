@@ -4,6 +4,7 @@ from gym_minigrid.utils.reward_constructor import Reward
 from operator import add
 import numpy as np
 import os
+from itertools import cycle
 
 class FollowTheLeaderEnv(MiniGridEnv):
     """
@@ -104,6 +105,8 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.min_distance = min_distance
         self.max_distance = max_distance
         self.max_dev = max_dev
+
+        # Если задан list, при первом вызове _determine_movement_strategy он будет преобразован в тип cycle
         self.movement_strategy = movement_strategy
         
         if movement_strategy == "random":
@@ -220,7 +223,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
     def _determine_movement_strategy(self):
         if isinstance(self.movement_strategy,list):
-            cur_strategy_name = self.movement_strategy[self._rand_int(0,len(self.movement_strategy))]
+            self.movement_strategy = cycle(self.movement_strategy)
+            cur_strategy_name = next(self.movement_strategy)
+        elif isinstance(self.movement_strategy,cycle):
+            cur_strategy_name = next(self.movement_strategy)
         else:
             cur_strategy_name = self.movement_strategy
             
@@ -528,9 +534,9 @@ class FollowTheLeaderEnv20x20_curve(FollowTheLeaderEnv):
     def __init__(self):
         super().__init__(movement_strategy="serpentine")
 
-class FollowTheLeaderEnv20x20_random_strat(FollowTheLeaderEnv):
+class FollowTheLeaderEnv20x20_cycle_all_strats(FollowTheLeaderEnv):
     def __init__(self):
-        super().__init__(movement_strategy=["serpentine", "corner_turn", "curve_turn", "forward", "round", "round"])
+        super().__init__(movement_strategy=["serpentine", "corner_turn", "curve_turn", "forward", "round"])
 
 class FollowTheLeaderEnv50x50_curve(FollowTheLeaderEnv):
     def __init__(self):
@@ -561,8 +567,8 @@ register(
 )
 
 register(
-    id='MiniGrid-FollowTheLeader-random_strat-20x20-v0',
-    entry_point='gym_minigrid.envs:FollowTheLeaderEnv20x20_random_strat'
+    id='MiniGrid-FollowTheLeader-cycle_all_strats-20x20-v0',
+    entry_point='gym_minigrid.envs:FollowTheLeaderEnv20x20_cycle_all_strats'
 )
 
 
