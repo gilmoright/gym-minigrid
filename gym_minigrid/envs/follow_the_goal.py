@@ -116,10 +116,9 @@ class FollowTheLeaderEnv(MiniGridEnv):
         self.accumulated_reward = 0
         
         # надо инициализировать перед вызовом random_strategy_generate внутри _determine_movement_strategy
-        self.max_steps = max_steps        
+        self.max_steps = max_steps
+        self.max_leader_steps = max_steps
         self.leader_movement_strategy = self._determine_movement_strategy()
-        if self.max_steps is None:
-            self.max_steps = len(self.leader_movement_strategy) + 10  # +10 на остановку лидера
         
         self.simulation_nb = 0
 
@@ -209,7 +208,7 @@ class FollowTheLeaderEnv(MiniGridEnv):
         if self.simulation_nb > 0:
             self.leader_movement_strategy = self._determine_movement_strategy()
         
-        self.max_steps = len(self.leader_movement_strategy) + 10 # +10 на 3 остановки и запуска лидера
+        
         self.stop_signal = False
         self.crash = False
         
@@ -235,6 +234,9 @@ class FollowTheLeaderEnv(MiniGridEnv):
             leader_movement_strategy = self.random_walking_strategy_generate()
         else:
             leader_movement_strategy = self.movement_strategy_generate(cur_strategy_name)
+            self.max_leader_steps = len(leader_movement_strategy)
+            if self.max_steps is None:
+                self.max_steps = self.max_leader_steps
         
         return leader_movement_strategy
     
@@ -290,7 +292,10 @@ class FollowTheLeaderEnv(MiniGridEnv):
         
         self.accumulated_reward += reward
         self.step_count += 1
-        if self.step_count >= self.max_steps:
+        if self.leader_step > self.max_leader_steps and self.is_in_box and self.is_on_trace:
+        #if self.step_count > self.max_steps + 7:
+            done = True
+        if self.step_count > self.max_steps:
             done = True
 
         obs = self.gen_obs()
@@ -471,15 +476,19 @@ class FollowTheLeaderEnv(MiniGridEnv):
     def _reward_computation(self):
         # Скорее всего, это можно сделать красивее
         res_reward = 0
-        
-        if self.stop_signal:
+        if self.leader_step < self.max_leader_steps:
+            if self.stop_signal:
+                res_reward += self.reward_config.leader_stop_penalty
+                if self.verbose >= 1:
+                    print("Лидер стоит по просьбе агента", self.reward_config.leader_stop_penalty)
+            else:
+                res_reward += self.reward_config.leader_movement_reward
+                if self.verbose >= 1:
+                    print("Лидер идёт по маршруту", self.reward_config.leader_movement_reward)
+        else:
             res_reward += self.reward_config.leader_stop_penalty
             if self.verbose >= 1:
-                print("Лидер стоит по просьбе агента", self.reward_config.leader_stop_penalty)
-        else:
-            res_reward += self.reward_config.leader_movement_reward
-            if self.verbose >= 1:
-                print("Лидер идёт по маршруту", self.reward_config.leader_movement_reward)
+                print("Лидер ожидает в точке назначения", self.reward_config.leader_stop_penalty)
         
         if self.is_in_box and self.is_on_trace:
             res_reward += self.reward_config.reward_in_box
@@ -535,11 +544,11 @@ class FollowTheLeaderEnv20x20_curve(FollowTheLeaderEnv):
 
 class FollowTheLeaderEnv20x20_cycle_all_strats(FollowTheLeaderEnv):
     def __init__(self):
-        super().__init__(movement_strategy=["serpentine", "corner_turn", "curve_turn", "forward", "round"])
+        super().__init__(movement_strategy=["serpentine", "corner_turn", "curve_turn", "forward", "round"], max_steps=60)
 
 class FollowTheLeaderEnv50x50_curve(FollowTheLeaderEnv):
     def __init__(self):
-        super().__init__(movement_strategy="curve_turn", size=50)
+        super().__init__(movement_strategy="curve_turn", size=50, max_steps=60)
 
 class FollowTheLeaderEnv50x50_random(FollowTheLeaderEnv):
     def __init__(self):
